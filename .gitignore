@@ -1,0 +1,5 @@
+reference/
+*.exe
+*.obj
+*.o
+notes.md
