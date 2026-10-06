@@ -1,5 +1,5 @@
-reference/
+private/
 *.exe
 *.obj
 *.o
-notes.md
+

@@ -4,7 +4,7 @@
 struct Song {
     int id;
     char title[120];
-    char filepath[150];
+    char artist[80];
 };
 
 void shuffleSongs(Song arr[], int n);
