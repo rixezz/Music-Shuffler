@@ -104,10 +104,10 @@ bool CustomHashSet::insert(int id) {
 }
 
 bool CustomHashSet::hasPlayed(int id) const {
-    if (id < 0) return false;
+    if (id <0) return false;
 
-    int idx = findSlot(id);
-    return table[idx] == id;
+    int pos2 = findSlot(id);
+    return table[pos2] ==id;
 }
 
 void CustomHashSet::clear() {
