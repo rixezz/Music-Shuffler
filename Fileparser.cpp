@@ -1,122 +1,68 @@
-#include "playlist_parser.h"
+#include "FileParser.h"
 #include <fstream>
+#include <iostream>
 #include <cstring>
 #include <cstdlib>
 
-PlaylistParser::PlaylistParser()
-{
-    tracks = 0;
-    count = 0;
-    capacity = 0;
-}
+using namespace std;
 
-PlaylistParser::~PlaylistParser()
-{
-    clear();
-}
+int loadPlaylist(const char* fname, Playlist& pl) {
+    ifstream file(fname);
+    if (!file.is_open()) {
+        cout << "could not open " << fname << endl;
+        return 0;
+    }
 
-bool PlaylistParser::expand()
-{
-    int newCapacity = (capacity == 0) ? 5 : capacity * 2;
-    Track* newTracks = new Track[newCapacity];
+    int loaded = 0;
+    char text[300];
 
-    for (int i = 0; i < count; i++)
-        newTracks[i] = tracks[i];
-
-    delete[] tracks;
-
-    tracks = newTracks;
-    capacity = newCapacity;
-
-    return true;
-}
-
-bool PlaylistParser::addTrack(int id, const char* title, const char* path)
-{
-    if (count == capacity)
-        expand();
-
-    tracks[count].id = id;
-
-    std::strncpy(tracks[count].title, title, 99);
-    tracks[count].title[99] = '\0';
-
-    std::strncpy(tracks[count].path, path, 199);
-    tracks[count].path[199] = '\0';
-
-    count++;
-
-    return true;
-}
-
-bool PlaylistParser::load(const char* filename)
-{
-    clear();
-
-    std::ifstream file(filename);
-
-    if (!file.is_open())
-        return false;
-
-    char line[400];
-
-    while (file.getline(line, sizeof(line)))
-    {
-        if (line[0] == '\0')
+    while (file.getline(text, 300)) {
+        if (strlen(text) == 0)
             continue;
 
-        char* first = std::strchr(line, '|');
+        int number = 0;
+        char title[120] = "";
+        char artist[80] = "unknown";
 
-        if (first == 0)
-            continue;
+        int field = 0;
+        char* begin = text;
 
-        *first = '\0';
+        for (int pos = 0; text[pos] != '\0'; pos++) {
+            if (text[pos] ==  '|') {
+                text[pos] = '\0';
 
-        char* second = std::strchr(first + 1, '|');
+                if (field == 0) {
+                    number = atoi(begin);
+                } else if (field == 1) {
+                    strncpy(title, begin, 119);
+                    title[119] = '\0';
+                }
 
-        if (second == 0)
-            continue;
+                field++;
+                begin = &text[pos + 1];
+            }
+        }
 
-        *second = '\0';
+        if (field == 2) {
+            strncpy(artist, begin, 79);
+            artist[79] = '\0';
+        } else if (field == 1) {
+            strncpy(title, begin, 119);
+            title[119] = '\0';
+        } else {
+            number = loaded;
+            strncpy(title, begin, 119);
+            title[119] = '\0';
+        }
 
-        char* end;
-        long id = std::strtol(line, &end, 10);
-
-        if (line == end || *end != '\0')
-            continue;
-
-        if (id < 0 || id > 2147483647L)
-            continue;
-
-        if (*(first + 1) == '\0' || *(second + 1) == '\0')
-            continue;
-
-        addTrack(static_cast<int>(id), first + 1, second + 1);
+        if (strlen(title) > 0) {
+            pl.addSong(number, title, artist);
+            loaded++;
+        }
     }
 
     file.close();
-
-    return count > 0;
+    cout << "loaded " << loaded << " songs from " << fname << endl;
+    return loaded;
 }
 
-int PlaylistParser::getCount() const
-{
-    return count;
-}
-
-const Track* PlaylistParser::getTrack(int index) const
-{
-    if (index < 0 || index >= count)
-        return 0;
-
-    return &tracks[index];
-}
-
-void PlaylistParser::clear()
-{
-    delete[] tracks;
-
-    tracks = 0;
-    count = 0;
-    capacity = 0;
-}

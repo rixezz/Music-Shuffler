@@ -4,8 +4,8 @@
 
 using namespace std;
 
-HistoryStack::HistoryStack(int n) {
-    maxN = n;
+HistoryStack::HistoryStack(int limit) {
+    maxN = limit;
     top = -1;
     data = new Song[maxN];
 }
@@ -14,48 +14,48 @@ HistoryStack::~HistoryStack() {
     delete[] data;
 }
 
-void HistoryStack::push(Song s) {
+void HistoryStack::push(Song item) {
     if (top >= maxN - 1) {
-        cout << "history stack is full" << endl;
-        return;
+        for (int pos = 1; pos < maxN; pos++)
+            data[pos - 1] = data[pos];
+        top--;
     }
     top++;
-    data[top] = s;
+    data[top] = item;
 }
 
 Song HistoryStack::pop() {
-    Song b;
-    b.id = -1;
-    strcpy(b.title, "");
-    strcpy(b.artist, "");
+    Song empty;
+    empty.id = -1;
+    strcpy(empty.title, "");
+    strcpy(empty.artist, "");
 
     if (top < 0) {
         cout << "history is empty" << endl;
-        return b;
+        return empty;
     }
 
-    Song x = data[top];
+    Song item = data[top];
     top--;
-    return x;
+    return item;
 }
 
 Song HistoryStack::peek() const {
-    Song b;
-    b.id = -1;
-    strcpy(b.title, "");
-    strcpy(b.artist, "");
-
-    if (top < 0) return b;
+    Song empty;
+    empty.id = -1;
+    strcpy(empty.title, "");
+    strcpy(empty.artist, "");
+    if (top < 0) return empty;
     return data[top];
 }
 
-Song HistoryStack::peekAt(int depth) const {
-    Song b;
-    b.id = -1;
-    strcpy(b.title, "");
-    strcpy(b.artist, "");
-    if (top - depth < 0) return b;
-    return data[top - depth];
+Song HistoryStack::peekAt(int level) const {
+    Song empty;
+    empty.id = -1;
+    strcpy(empty.title, "");
+    strcpy(empty.artist, "");
+    if (top - level < 0) return empty;
+    return data[top - level];
 }
 
 bool HistoryStack::isEmpty() const {
@@ -73,7 +73,8 @@ void HistoryStack::display() const {
     }
 
     cout << "play history (most recent first):" << endl;
-    for (int i = top; i >= 0; i--) {
-        cout << "  " << data[i].title << endl;
+    for (int pos = top; pos >= 0; pos--) {
+        cout << "  " << data[pos].title << " - " << data[pos].artist << endl;
     }
 }
+

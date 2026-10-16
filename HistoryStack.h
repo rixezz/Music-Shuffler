@@ -5,13 +5,13 @@
 
 class HistoryStack {
 public:
-    HistoryStack(int n = 200);
+    HistoryStack(int limit = 200);
     ~HistoryStack();
 
-    void push(Song s);
+    void push(Song item);
     Song pop();
     Song peek() const;
-    Song peekAt(int depth) const;
+    Song peekAt(int level) const;
     bool isEmpty() const;
     int getSize() const;
     void display() const;
