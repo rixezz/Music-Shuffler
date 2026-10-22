@@ -14,186 +14,185 @@
 
 using namespace std;
 
-Song* arr;
-int n;
-int now = -1;
-int secs = 0;
-bool paused = false;
-CustomHashSet seen(128);
-HistoryStack hist(500);
+Song* songList;
+int total;
+int current = -1;
+int seconds = 0;
+bool isPaused = false;
+CustomHashSet playedSet(128);
+HistoryStack history(500);
 
-int getLen(int id) {
+int getLength(int id) {
     return 170 + (id * 17) % 90;
 }
 
-void cursorOn(bool on) {
-    CONSOLE_CURSOR_INFO ci;
-    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    GetConsoleCursorInfo(h, &ci);
-    ci.bVisible = on;
-    SetConsoleCursorInfo(h, &ci);
+void showCursor(bool visible) {
+    CONSOLE_CURSOR_INFO info;
+    HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    GetConsoleCursorInfo(handle, &info);
+    info.bVisible = visible;
+    SetConsoleCursorInfo(handle, &info);
 }
 
-void goTop() {
-    COORD c = {0, 0};
-    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), c);
+void moveToTop() {
+    COORD corner = {0, 0};
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), corner);
 }
 
-void playIdx(int i) {
-    now = i;
-    secs = 0;
-    seen.insert(arr[now].id);
-    hist.push(arr[now]);
+void playSong(int index) {
+    current = index;
+    seconds = 0;
+    playedSet.insert(songList[current].id);
+    history.push(songList[current]);
 }
 
-void doShuffle() {
-    seen.clear();
-    shuffleSongs(arr, n);
-    playIdx(0);
+void shuffleAll() {
+    playedSet.clear();
+    shuffleSongs(songList, total);
+    playSong(0);
 }
 
-void goNext() {
-    if (now + 1 >= n) doShuffle();
-    else playIdx(now + 1);
+void nextSong() {
+    if (current + 1 >= total) shuffleAll();
+    else playSong(current + 1);
 }
 
-void goPrev() {
-    if (hist.getSize() <= 1) return;
-    hist.pop();
-    int id = hist.peek().id;
-    for (int i = 0; i < n; i++)
-        if (arr[i].id == id) now = i;
-    secs = 0;
+void previousSong() {
+    if (history.getSize() <= 1) return;
+    history.pop();
+    int id = history.peek().id;
+    for (int counter = 0; counter < total; counter++)
+        if (songList[counter].id ==id) current = counter;
+    seconds = 0;
 }
 
-void row(const char* s) {
-    printf("   %-70s\n", s);
+void printRow(const char* text) {
+    printf("   %-70s\n", text);
 }
 
-void draw() {
-    char buf[200];
-    goTop();
-    row("");
-    row("NOW PLAYING");
-    snprintf(buf, 200, "%s - %s", arr[now].title, arr[now].artist);
-    row(buf);
+void drawPlayer() {
+    char line[200];
+    moveToTop();
+    printRow("");
+    printRow("NOW PLAYING");
+    snprintf(line, 200, "%s - %s", songList[current].title, songList[current].artist);
+    printRow(line);
 
-    int len = getLen(arr[now].id);
-    int bars = secs * 30 / len;
+    int length = getLength(songList[current].id);
+    int filled = seconds * 30 / length;
     char bar[31];
-    for (int i = 0; i < 30; i++) bar[i] = (i < bars ? '#' : '.');
+    for (int counter = 0; counter < 30; counter++) bar[counter] = (counter < filled ? '#' : '.');
     bar[30] = '\0';
-    snprintf(buf, 200, "%d:%02d [%s] %d:%02d  %s", secs / 60, secs % 60, bar, len / 60, len % 60, paused ? "paused" : "");
-    row(buf);
-    snprintf(buf, 200, "track %d of %d, played %d", now + 1, n, seen.getSize());
-    row(buf);
-    row("");
-    row("n next | p previous | s reshuffle | space pause/play");
-    row("h history | u up next | m menu");
+    snprintf(line, 200, "%d:%02d [%s] %d:%02d  %s", seconds / 60, seconds % 60, bar, length / 60, length % 60, isPaused ? "paused" : "");
+    printRow(line);
+    snprintf(line, 200, "track %d of %d, played %d", current + 1, total, playedSet.getSize());
+    printRow(line);
+    printRow("");
+    printRow("n next | p previous | s reshuffle | space pause/play");
+    printRow("h history | u up next | m menu");
 }
 
 void drawList(int mode) {
-    char buf[200];
-    goTop();
-    row("");
+    char line[200];
+    moveToTop();
+    printRow("");
     if (mode == 1) {
-        row("HISTORY (last 10 played)");
-        row("");
-        for (int i = 1; i <= 10; i++) {
-            Song s = hist.peekAt(i);
-            if (s.id < 0) row("");
+        printRow("HISTORY (last 10 played)");
+        printRow("");
+        for (int pos = 1; pos <= 10; pos++) {
+            Song item = history.peekAt(pos);
+            if (item.id < 0) printRow("");
             else {
-                snprintf(buf, 200, "%d. %s - %s", i, s.title, s.artist);
-                row(buf);
+                snprintf(line, 200, "%d. %s - %s", pos, item.title, item.artist);
+                printRow(line);
             }
         }
     } else {
-        row("UP NEXT (next 10 songs)");
-        row("");
-        for (int i = 1; i <= 10; i++) {
-            if (now + i < n) {
-                snprintf(buf, 200, "%d. %s - %s", i, arr[now + i].title, arr[now + i].artist);
-                row(buf);
+        printRow("UP NEXT (next 10 songs)");
+        printRow("");
+        for (int pos = 1; pos <= 10; pos++) {
+            if (current + pos < total) {
+                snprintf(line, 200, "%d. %s - %s", pos, songList[current + pos].title, songList[current + pos].artist);
+                printRow(line);
             } else {
-                row("");
+                printRow("");
             }
         }
     }
-    row("");
-    row("press backspace to go back to the player");
+    printRow("");
+    printRow("press backspace to go back to the player");
 }
 
-void player() {
-    if (now < 0) doShuffle();
+void livePlayer() {
+    if (current < 0) shuffleAll();
     system("cls");
-    cursorOn(false);
-    int t = 0;
+    showCursor(false);
+    int ticks = 0;
     int mode = 0;
     while (true) {
-        if (mode == 0) draw();
+        if (mode == 0) drawPlayer();
         else drawList(mode);
 
         if (_kbhit()) {
-            int k = _getch();
+            int key = _getch();
             if (mode != 0) {
-                if (k == 8) mode = 0;
+                if (key == 8) mode = 0;
             }
-            else if (k == 'n') goNext();
-            else if (k == 'p') goPrev();
-            else if (k == 's') doShuffle();
-            else if (k == ' ') paused = !paused;
-            else if (k == 'h') mode = 1;
-            else if (k == 'u') mode = 2;
-            else if (k == 'm') break;
+            else if (key == 'n') nextSong();
+            else if (key == 'p') previousSong();
+            else if (key == 's') shuffleAll();
+            else if (key == ' ') isPaused = !isPaused;
+            else if (key == 'h') mode = 1;
+            else if (key == 'u') mode = 2;
+            else if (key == 'm') break;
             system("cls");
         }
         Sleep(250);
-        if (paused) continue;
-        t++;
-        if (t % 4 == 0) {
-            secs++;
-            if (secs >= getLen(arr[now].id)) {
-                goNext();
+        if (isPaused) continue;
+        ticks++;
+        if (ticks % 4 ==0) {
+            seconds++;
+            if (seconds >= getLength(songList[current].id)) {
+                nextSong();
                 system("cls");
             }
         }
     }
-    cursorOn(true);
+    showCursor(true);
     system("cls");
 }
 
-
-void search() {
-    char key[60], key2[60];
+void searchSongs() {
+    char word[60], lowerWord[60];
     cout << "\n   search: ";
-    cin.getline(key, 60);
-    int L = strlen(key);
-    if (L == 0) return;
-    for (int i = 0; i <= L; i++) key2[i] = tolower(key[i]);
+    cin.getline(word, 60);
+    int size = strlen(word);
+    if (size == 0) return;
+    for (int counter = 0; counter <= size; counter++) lowerWord[counter] = tolower(word[counter]);
 
-    int res[200];
-    int cnt = 0;
-    for (int i = 0; i < n; i++) {
-        char line[220];
-        snprintf(line, 220, "%s %s", arr[i].title, arr[i].artist);
-        for (int k = 0; line[k]; k++) line[k] = tolower(line[k]);
-        if (strstr(line, key2)) res[cnt++] = i;
+    int matches[200];
+    int found = 0;
+    for (int counter = 0; counter < total; counter++) {
+        char text[220];
+        snprintf(text, 220, "%s %s", songList[counter].title, songList[counter].artist);
+        for (int pos = 0; text[pos]; pos++) text[pos] = tolower(text[pos]);
+        if (strstr(text, lowerWord)) matches[found++] = counter;
     }
-    if (cnt == 0) {
+    if (found == 0) {
         cout << "   no song found\n";
         cout << "\n   press enter to go back...";
         cin.get();
         return;
     }
-    for (int i = 0; i < cnt; i++)
-        cout << "   " << i + 1 << ". " << arr[res[i]].title << " - " << arr[res[i]].artist << "\n";
+    for (int counter = 0; counter < found; counter++)
+        cout << "   " << counter + 1 << ". " << songList[matches[counter]].title << " - " << songList[matches[counter]].artist << "\n";
     cout << "\n   enter number to play (0 to go back): ";
-    char buf[16];
-    cin.getline(buf, 16);
-    int sel = atoi(buf);
-    if (sel >= 1 && sel <= cnt) {
-        playIdx(res[sel - 1]);
-        player();
+    char input[16];
+    cin.getline(input, 16);
+    int choice = atoi(input);
+    if (choice >= 1 && choice <= found) {
+        playSong(matches[choice - 1]);
+        livePlayer();
     }
 }
 
@@ -201,39 +200,40 @@ int main() {
     system("color 0B");
     srand((unsigned)time(NULL));
 
-    Playlist pl;
-    if (loadPlaylist("playlist.txt", pl) == 0) {
+    Playlist playlist;
+    if (loadPlaylist("playlist.txt", playlist) == 0) {
         cout << "playlist.txt is missing or empty\n";
         return 1;
     }
-    n = pl.getSongCount();
-    arr = new Song[n];
-    pl.toArray(arr, n);
+    total = playlist.getSongCount();
+    songList = new Song[total];
+    playlist.toArray(songList, total);
 
-    char inp[32];
+    char input[32];
     while (true) {
         system("cls");
-        cout << "\n   SMART PLAYLIST SHUFFLER  (" << n << " songs)\n\n";
-        if (now >= 0)
-            cout << "   now playing: " << arr[now].title << " - " << arr[now].artist << "\n\n";
+        cout << "\n   SMART PLAYLIST SHUFFLER  (" << total << " songs)\n\n";
+        if (current >= 0)
+            cout << "   now playing: " << songList[current].title << " - " << songList[current].artist << "\n\n";
         cout << "   1. Live Player\n";
         cout << "   2. All Songs\n";
         cout << "   3. Search\n";
         cout << "   4. Exit\n\n";
         cout << "   Enter your choice: ";
-        cin.getline(inp, 32);
-        int c = atoi(inp);
+        cin.getline(input, 32);
+        int choice = atoi(input);
 
-        if (c == 1) player();
-        else if (c == 2) {
+        if (choice == 1) livePlayer();
+        else if (choice == 2) {
             system("cls");
-            pl.displayAll();
+            playlist.displayAll();
             cout << "   press enter to go back...";
             cin.get();
         }
-        else if (c == 3) search();
-        else if (c == 4) break;
+        else if (choice ==3) searchSongs();
+        else if (choice == 4) break;
     }
-    delete[] arr;
+    delete[] songList;
     return 0;
 }
+

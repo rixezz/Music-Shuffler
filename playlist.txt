@@ -1,0 +1,100 @@
+0|Blinding Lights|The Weeknd
+1|Shape of You|Ed Sheeran
+2|Someone You Loved|Lewis Capaldi
+3|Sunflower|Post Malone
+4|Stay|The Kid LAROI
+5|Believer|Imagine Dragons
+6|Heat Waves|Glass Animals
+7|Perfect|Ed Sheeran
+8|Say You Won't Let Go|James Arthur
+9|Closer|The Chainsmokers
+10|Lovely|Billie Eilish
+11|Watermelon Sugar|Harry Styles
+12|As It Was|Harry Styles
+13|Levitating|Dua Lipa
+14|Counting Stars|OneRepublic
+15|Riptide|Vance Joy
+16|Wake Me Up|Avicii
+17|The Nights|Avicii
+18|Photograph|Ed Sheeran
+19|Thinking Out Loud|Ed Sheeran
+20|Bohemian Rhapsody|Queen
+21|Don't Stop Believin'|Journey
+22|Hotel California|Eagles
+23|In the End|Linkin Park
+24|Numb|Linkin Park
+25|Demons|Imagine Dragons
+26|Radioactive|Imagine Dragons
+27|Viva La Vida|Coldplay
+28|Yellow|Coldplay
+29|Fix You|Coldplay
+30|Something Just Like This|The Chainsmokers
+31|Lose Yourself|Eminem
+32|God's Plan|Drake
+33|One Dance|Drake
+34|Circles|Post Malone
+35|Save Your Tears|The Weeknd
+36|Attention|Charlie Puth
+37|See You Again|Wiz Khalifa
+38|Boulevard of Broken Dreams|Green Day
+39|Rolling in the Deep|Adele
+40|Someone Like You|Adele
+41|Hello|Adele
+42|Easy On Me|Adele
+43|Uptown Funk|Mark Ronson
+44|Shake It Off|Taylor Swift
+45|Blank Space|Taylor Swift
+46|Love Story|Taylor Swift
+47|Anti-Hero|Taylor Swift
+48|Cruel Summer|Taylor Swift
+49|Royals|Lorde
+50|Happy|Pharrell Williams
+51|Can't Stop the Feeling|Justin Timberlake
+52|Sorry|Justin Bieber
+53|Peaches|Justin Bieber
+54|Love Yourself|Justin Bieber
+55|Havana|Camila Cabello
+56|Senorita|Shawn Mendes
+57|Treat You Better|Shawn Mendes
+58|Thunder|Imagine Dragons
+59|Girls Like You|Maroon 5
+60|Sugar|Maroon 5
+61|Memories|Maroon 5
+62|Shallow|Lady Gaga
+63|Just Dance|Lady Gaga
+64|Bad Romance|Lady Gaga
+65|Flowers|Miley Cyrus
+66|Espresso|Sabrina Carpenter
+67|Good 4 U|Olivia Rodrigo
+68|Drivers License|Olivia Rodrigo
+69|Vampire|Olivia Rodrigo
+70|Golden Hour|JVKE
+71|Unholy|Sam Smith
+72|Stay With Me|Sam Smith
+73|Dynamite|BTS
+74|Butter|BTS
+75|Despacito|Luis Fonsi
+76|Waka Waka|Shakira
+77|Hips Don't Lie|Shakira
+78|Firework|Katy Perry
+79|Roar|Katy Perry
+80|Dark Horse|Katy Perry
+81|Umbrella|Rihanna
+82|Diamonds|Rihanna
+83|We Found Love|Rihanna
+84|Halo|Beyonce
+85|Single Ladies|Beyonce
+86|Titanium|David Guetta
+87|Wannabe|Spice Girls
+88|Africa|Toto
+89|Take On Me|a-ha
+90|Billie Jean|Michael Jackson
+91|Thriller|Michael Jackson
+92|Beat It|Michael Jackson
+93|Imagine|John Lennon
+94|Let It Be|The Beatles
+95|Hey Jude|The Beatles
+96|Yesterday|The Beatles
+97|Dancing Queen|ABBA
+98|Wonderwall|Oasis
+99|Sweet Caroline|Neil Diamond
