@@ -3,3 +3,5 @@ private/
 *.obj
 *.o
 
+users.txt
+fav_*.txt
