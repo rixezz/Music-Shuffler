@@ -9,6 +9,9 @@
 #include <dwrite.h>
 #include <bcrypt.h>
 #include <dwmapi.h>
+#include <mfapi.h>
+#include <mfplay.h>
+#include <wincodec.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -31,6 +34,8 @@ bool playing = false;
 bool repeatOne = false;
 CustomHashSet playedSet(128);
 HistoryStack history(500);
+wchar_t songPath[1000][MAX_PATH];   // indexed by song id; empty when the song came from playlist.txt
+int songLen[1000];                  // seconds, 0 when unknown
 
 enum { SCREEN_LOGIN, SCREEN_APP };
 enum { H_NONE, H_NAV, H_SIGNOUT, H_PLAYALL, H_SHUFFLE, H_PREV, H_PLAY, H_NEXT, H_SEEK, H_ROW, H_HEART, H_SEARCH,
@@ -216,9 +221,10 @@ R rRow(Geo g, int i) { return mkR(g.mx + U(24), g.ly + i * g.rh - scrollY, g.mw 
 R rRowHeart(R r) { return mkR(r.x + r.w - U(124), r.y + (r.h - U(28)) / 2, U(28), U(28)); }
 R rNpClose(Geo g) { return mkR(g.mx + U(24), U(20), U(40), U(40)); }
 
-float barCenter(Geo g) { return (U(340) + g.W - U(24)) / 2; }
+// controls sit on the window's centre line, pushed right only when the window is too narrow for the song info
+float barCenter(Geo g) { return fmaxf(g.W / 2, U(340) + U(150)); }
 float trackWidth(Geo g) {
-    float room = g.W - U(24) - U(340) - U(120);
+    float room = 2 * (barCenter(g) - U(340) - U(50));
     return room < U(400) ? room : U(400);
 }
 R rSeek(Geo g) {
@@ -433,7 +439,188 @@ void setSkipped(int id, bool on) {
 // ---------- player logic (same rules as the console version) ----------
 
 int getLength(int id) {
+    if (id >= 0 && id < 1000 && songLen[id] > 0) return songLen[id];
     return 170 + (id * 17) % 90;
+}
+
+// ---------- mp3 files: length from the first frame header, cover art from the ID3v2 tag ----------
+
+unsigned syncsafe(const unsigned char* b) { return (b[0] & 127) << 21 | (b[1] & 127) << 14 | (b[2] & 127) << 7 | (b[3] & 127); }
+unsigned be32(const unsigned char* b) { return (unsigned)b[0] << 24 | b[1] << 16 | b[2] << 8 | b[3]; }
+
+// copies the first APIC (PIC in v2.2) image out of an ID3v2 tag body
+void findPicture(const unsigned char* t, unsigned n, int ver, int flags, unsigned char** pic, unsigned* picLen) {
+    if (flags & 0x80) return;   // unsynchronised tags are rare, skip them
+    unsigned pos = 0;
+    if ((flags & 0x40) && n >= 4) pos = ver == 4 ? syncsafe(t) : be32(t) + 4;
+    unsigned hdr = ver == 2 ? 6 : 10;
+    while (pos + hdr <= n && t[pos]) {
+        const unsigned char* fr = t + pos;
+        unsigned size = ver == 2 ? (fr[3] << 16 | fr[4] << 8 | fr[5]) : (ver == 4 ? syncsafe(fr + 4) : be32(fr + 4));
+        if (size > n - pos - hdr) break;
+        const unsigned char* d = fr + hdr;
+        if (size > 4 && (ver == 2 ? !memcmp(fr, "PIC", 3) : !memcmp(fr, "APIC", 4))) {
+            int enc = d[0];
+            unsigned k = 1;
+            if (ver == 2) k += 3;                       // 3 letter image format
+            else { while (k < size && d[k]) k++; k++; } // mime type
+            k++;                                        // picture type
+            if (enc == 1 || enc == 2) { while (k + 1 < size && (d[k] || d[k + 1])) k += 2; k += 2; }
+            else { while (k < size && d[k]) k++; k++; }
+            if (k < size) {
+                *picLen = size - k;
+                *pic = (unsigned char*)malloc(*picLen);
+                if (*pic) memcpy(*pic, d + k, *picLen);
+            }
+            return;
+        }
+        pos += hdr + size;
+    }
+}
+
+bool readMp3(const wchar_t* path, int* secs, unsigned char** pic, unsigned* picLen) {
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER fileSize;
+    GetFileSizeEx(f, &fileSize);
+    unsigned char head[10];
+    DWORD got = 0;
+    unsigned audioStart = 0;
+    if (ReadFile(f, head, 10, &got, NULL) && got == 10 && !memcmp(head, "ID3", 3)) {
+        unsigned size = syncsafe(head + 6);
+        audioStart = 10 + size + ((head[5] & 0x10) ? 10 : 0);
+        if (pic && size < 32u * 1024 * 1024) {
+            unsigned char* tag = (unsigned char*)malloc(size);
+            if (tag && ReadFile(f, tag, size, &got, NULL) && got == size) findPicture(tag, size, head[3], head[5], pic, picLen);
+            free(tag);
+        }
+    }
+    if (secs) {
+        static const int rate1[15] = {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320};
+        static const int rate2[15] = {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160};
+        static const int hz[3] = {44100, 48000, 32000};
+        static unsigned char buf[16384];
+        SetFilePointer(f, audioStart, NULL, FILE_BEGIN);
+        got = 0;
+        ReadFile(f, buf, sizeof buf, &got, NULL);
+        for (DWORD i = 0; i + 4 <= got; i++) {
+            const unsigned char* h = buf + i;
+            if (h[0] != 0xFF || (h[1] & 0xE0) != 0xE0) continue;
+            int ver = (h[1] >> 3) & 3, layer = (h[1] >> 1) & 3, bi = h[2] >> 4, si = (h[2] >> 2) & 3;
+            if (ver == 1 || layer != 1 || bi == 0 || bi == 15 || si == 3) continue;
+            int kbps = (ver == 3 ? rate1 : rate2)[bi];
+            int sampleRate = hz[si] >> (ver == 3 ? 0 : (ver == 2 ? 1 : 2));
+            int perFrame = ver == 3 ? 1152 : 576;
+            bool mono = (h[3] >> 6) == 3;
+            unsigned side = ver == 3 ? (mono ? 17 : 32) : (mono ? 9 : 17);
+            const unsigned char* x = h + 4 + side;
+            unsigned frames = 0;
+            if (i + 4 + side + 12 <= got && (!memcmp(x, "Xing", 4) || !memcmp(x, "Info", 4)) && (be32(x + 4) & 1)) frames = be32(x + 8);
+            else if (i + 54 <= got && !memcmp(h + 36, "VBRI", 4)) frames = be32(h + 50);
+            if (frames) *secs = (int)((double)frames * perFrame / sampleRate);
+            else *secs = (int)((fileSize.QuadPart - audioStart - i) * 8 / (kbps * 1000LL));
+            break;
+        }
+    }
+    CloseHandle(f);
+    return true;
+}
+
+// Music\Artist - Title.mp3 becomes one playlist entry; ids follow the folder order
+int loadMusicFolder(Playlist& pl) {
+    WIN32_FIND_DATAW fd;
+    HANDLE find = FindFirstFileW(L"Music\\*.mp3", &fd);
+    if (find == INVALID_HANDLE_VALUE) return 0;
+    int count = 0;
+    do {
+        wchar_t name[MAX_PATH], rel[MAX_PATH + 8];
+        wcscpy(name, fd.cFileName);
+        wchar_t* dot = wcsrchr(name, L'.');
+        if (dot) *dot = L'\0';
+        char text[400];
+        WideCharToMultiByte(CP_UTF8, 0, name, -1, text, sizeof text, NULL, NULL);
+        const char* artist = "Unknown artist";
+        const char* title = text;
+        char* split = strstr(text, " - ");
+        if (split) {
+            *split = '\0';
+            artist = text;
+            title = split + 3;
+        }
+        swprintf(rel, MAX_PATH + 8, L"Music\\%ls", fd.cFileName);
+        GetFullPathNameW(rel, MAX_PATH, songPath[count], NULL);
+        readMp3(songPath[count], &songLen[count], NULL, NULL);
+        pl.addSong(count, title, artist);
+        count++;
+    } while (count < 1000 && FindNextFileW(find, &fd));
+    FindClose(find);
+    return count;
+}
+
+// ---------- audio through Media Foundation (MFPlay), kept in step with `playing` and `posf` ----------
+// MCI's mpegvideo device could not open many of these files, MFPlay handles all of them
+
+IMFPMediaPlayer* player = NULL;
+int audioId = -1;          // song id loaded into the player
+bool audioOn = false;      // the player has the song loaded and drives `posf`
+bool audioStarted = false; // Play was issued for this song, so a later STOPPED state means it finished
+bool audioDone = false;    // the song reached its end
+float pendingSeek = -1;    // seek to apply once the player has loaded the file
+float seekHold = 0;        // seconds to keep `posf` as set while an async seek lands
+
+float audioPos() {
+    PROPVARIANT v;
+    PropVariantInit(&v);
+    if (FAILED(player->GetPosition(MFP_POSITIONTYPE_100NS, &v))) return posf;
+    return (float)(v.hVal.QuadPart / 1e7);
+}
+
+void audioClose() {
+    if (player) {
+        player->Shutdown();
+        player->Release();
+    }
+    player = NULL;
+    audioOn = false;
+}
+
+void audioSync() {
+    if (current < 0) return;
+    int id = songList[current].id;
+    if (id != audioId) {
+        audioClose();
+        audioId = id;
+        audioStarted = audioDone = false;
+        pendingSeek = posf > 0.5f ? posf : -1;
+        if (id < 0 || id >= 1000 || !songPath[id][0]) return;
+        MFPCreateMediaPlayer(songPath[id], FALSE, 0, NULL, NULL, &player);
+    }
+    if (!player) return;
+    MFP_MEDIAPLAYER_STATE state = MFP_MEDIAPLAYER_STATE_EMPTY;
+    player->GetState(&state);
+    if (state == MFP_MEDIAPLAYER_STATE_EMPTY) return;   // still opening the file
+    if (!audioOn) {
+        audioOn = true;
+        PROPVARIANT v;
+        PropVariantInit(&v);
+        if (SUCCEEDED(player->GetDuration(MFP_POSITIONTYPE_100NS, &v)) && v.uhVal.QuadPart > 0)
+            songLen[id] = (int)(v.uhVal.QuadPart / 10000000);
+    }
+    if (pendingSeek >= 0) {
+        PROPVARIANT v;
+        PropVariantInit(&v);
+        v.vt = VT_I8;
+        v.hVal.QuadPart = (LONGLONG)(pendingSeek * 1e7);
+        player->SetPosition(MFP_POSITIONTYPE_100NS, &v);
+        pendingSeek = -1;
+        seekHold = 0.25f;
+        if (state == MFP_MEDIAPLAYER_STATE_STOPPED) audioStarted = false;   // replaying a finished song
+    }
+    // Play() is asynchronous, so only a STOPPED seen after PLAYING means the song finished
+    if (state == MFP_MEDIAPLAYER_STATE_PLAYING) audioStarted = true;
+    else if (audioStarted && state == MFP_MEDIAPLAYER_STATE_STOPPED) audioDone = true;
+    if (playing && !audioDone && state != MFP_MEDIAPLAYER_STATE_PLAYING) player->Play();
+    else if (!playing && state == MFP_MEDIAPLAYER_STATE_PLAYING) player->Pause();
 }
 
 void fieldText(const Field& f, char* out, int size) {
@@ -507,6 +694,10 @@ void refresh() {
 void setPos(float p) {
     posf = p;
     seconds = (int)p;
+    if (current >= 0 && audioId == songList[current].id) {
+        pendingSeek = p;
+        audioDone = false;
+    }
 }
 
 void playSong(int index) {
@@ -812,8 +1003,111 @@ void dropGradients() {
     }
 }
 
-// every song gets its own gradient tile, since playlist.txt has no cover images
+// cover art from the mp3 tag: a background thread decodes every cover to pixels at startup,
+// the UI thread only uploads finished pixels, so scrolling never waits on a JPEG decode
+const int COVER_PX = 320;
+unsigned char* coverPixels[1000];    // COVER_PX x COVER_PX premultiplied BGRA, owned by the worker until ready
+volatile LONG coverReady[1000];      // 0 not decoded yet, 1 pixels ready, 2 no picture in the file
+ID2D1BitmapBrush* coverBr[1000];
+int coverOrder[1000], coverCount = 0;
+int coverBudget = 0;                 // uploads allowed per frame
+
+// decodes one embedded picture to a square COVER_PX image; returns NULL when there is none
+unsigned char* decodeCover(IWICImagingFactory* wic, int id) {
+    unsigned char* pic = NULL;
+    unsigned len = 0;
+    readMp3(songPath[id], NULL, &pic, &len);
+    if (!pic) return NULL;
+    unsigned char* pixels = NULL;
+    IWICStream* stream = NULL;
+    IWICBitmapDecoder* decoder = NULL;
+    IWICBitmapFrameDecode* frame = NULL;
+    IWICBitmapClipper* clipper = NULL;
+    IWICBitmapScaler* scaler = NULL;
+    IWICFormatConverter* converter = NULL;
+    UINT w = 0, h = 0;
+    if (SUCCEEDED(wic->CreateStream(&stream)) && SUCCEEDED(stream->InitializeFromMemory(pic, len)) &&
+        SUCCEEDED(wic->CreateDecoderFromStream(stream, NULL, WICDecodeMetadataCacheOnDemand, &decoder)) &&
+        SUCCEEDED(decoder->GetFrame(0, &frame)) && SUCCEEDED(frame->GetSize(&w, &h)) && w && h &&
+        SUCCEEDED(wic->CreateBitmapClipper(&clipper))) {
+        UINT side = w < h ? w : h;
+        WICRect square = {(INT)(w - side) / 2, (INT)(h - side) / 2, (INT)side, (INT)side};
+        if (SUCCEEDED(clipper->Initialize(frame, &square)) && SUCCEEDED(wic->CreateBitmapScaler(&scaler)) &&
+            SUCCEEDED(scaler->Initialize(clipper, COVER_PX, COVER_PX, WICBitmapInterpolationModeFant)) &&
+            SUCCEEDED(wic->CreateFormatConverter(&converter)) &&
+            SUCCEEDED(converter->Initialize(scaler, GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, NULL, 0, WICBitmapPaletteTypeMedianCut))) {
+            pixels = (unsigned char*)malloc(COVER_PX * COVER_PX * 4);
+            if (pixels && FAILED(converter->CopyPixels(NULL, COVER_PX * 4, COVER_PX * COVER_PX * 4, pixels))) {
+                free(pixels);
+                pixels = NULL;
+            }
+        }
+    }
+    IUnknown* parts[6] = {converter, scaler, clipper, frame, decoder, stream};
+    for (int i = 0; i < 6; i++) if (parts[i]) parts[i]->Release();
+    free(pic);
+    return pixels;
+}
+
+DWORD WINAPI coverWorker(LPVOID) {
+    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    IWICImagingFactory* wic = NULL;
+    CoCreateInstance(CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, __uuidof(IWICImagingFactory), (void**)&wic);
+    for (int k = 0; k < coverCount; k++) {
+        int id = coverOrder[k];
+        coverPixels[id] = wic ? decodeCover(wic, id) : NULL;
+        InterlockedExchange(&coverReady[id], coverPixels[id] ? 1 : 2);
+    }
+    if (wic) wic->Release();
+    CoUninitialize();
+    return 0;
+}
+
+// starts decoding in the current play order, so the rows on screen fill in first
+void startCovers() {
+    coverCount = 0;
+    for (int i = 0; i < total && i < 1000; i++) {
+        int id = songList[i].id;
+        if (id >= 0 && id < 1000 && songPath[id][0]) coverOrder[coverCount++] = id;
+    }
+    HANDLE worker = CreateThread(NULL, 0, coverWorker, NULL, 0, NULL);
+    if (worker) CloseHandle(worker);
+}
+
+ID2D1BitmapBrush* coverFor(int id) {
+    if (id < 0 || id >= 1000 || !songPath[id][0]) return NULL;
+    if (coverBr[id]) return coverBr[id];
+    LONG state = coverReady[id];
+    if (state == 0) { redraw(); return NULL; }   // worker has not reached it yet
+    if (state != 1 || coverBudget <= 0) { if (state == 1) redraw(); return NULL; }
+    coverBudget--;
+    ID2D1Bitmap* bitmap = NULL;
+    D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (SUCCEEDED(rt->CreateBitmap(D2D1::SizeU(COVER_PX, COVER_PX), coverPixels[id], COVER_PX * 4, props, &bitmap))) {
+        rt->CreateBitmapBrush(bitmap, &coverBr[id]);
+        bitmap->Release();
+    }
+    return coverBr[id];
+}
+
+// device loss only drops the GPU copies; the decoded pixels stay for re-upload
+void dropCovers() {
+    for (int i = 0; i < 1000; i++) {
+        if (coverBr[i]) coverBr[i]->Release();
+        coverBr[i] = NULL;
+    }
+}
+
+// songs without cover art get their own gradient tile
 void drawArt(float x, float y, float s, const Song& song, float radius) {
+    ID2D1BitmapBrush* cover = coverFor(song.id);
+    if (cover) {
+        float k = s / COVER_PX;
+        cover->SetTransform(D2D1::Matrix3x2F::Scale(k, k) * D2D1::Matrix3x2F::Translation(x, y));
+        cover->SetOpacity(gAlpha);
+        rt->FillRoundedRectangle(RR(x, y, s, s, radius), cover);
+        return;
+    }
     int hue = (song.id * 47 + 13) % 360;
     ID2D1LinearGradientBrush* brush = artGradient(hue);
     if (brush) {
@@ -1440,6 +1734,7 @@ void paintApp(Geo g) {
 
 void paintAll() {
     Geo g = geo();
+    coverBudget = 6;
     fillRect(0, 0, g.W, g.H, cBG);
     if (screen == SCREEN_LOGIN) paintLogin(g);
     else paintApp(g);
@@ -1449,6 +1744,7 @@ void paintAll() {
 
 void destroyTarget() {
     dropGradients();
+    dropCovers();
     if (br) br->Release();
     if (rt) rt->Release();
     br = NULL;
@@ -1837,6 +2133,7 @@ bool tick() {
         anim |= approach(hv[c], over ? 1.0f : 0.0f, 16, dt);
         anim |= approach(pv[c], 0.0f, 14, dt);
     }
+    audioSync();
     anim |= approach(fieldFocus[0], focusField == F_USER ? 1.0f : 0.0f, 16, dt);
     anim |= approach(fieldFocus[1], focusField == F_PASS ? 1.0f : 0.0f, 16, dt);
 
@@ -1848,7 +2145,10 @@ bool tick() {
     }
 
     if (playing) {
-        posf += dt;
+        if (audioOn && audioDone) posf = (float)getLength(songList[current].id);
+        else if (audioOn && seekHold <= 0) posf = audioPos();
+        else posf += dt;
+        if (seekHold > 0) seekHold -= dt;
         seconds = (int)posf;
         if (seconds >= getLength(songList[current].id)) {
             if (repeatOne) setPos(0);
@@ -2101,14 +2401,19 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show) {
     }
     srand((unsigned)time(NULL));
 
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    MFStartup(MF_VERSION);
+
+    // real mp3s from the Music folder; playlist.txt (no audio) is the fallback
     Playlist playlist;
-    if (loadPlaylist("playlist.txt", playlist) == 0) {
-        MessageBoxA(NULL, "playlist.txt is missing or empty", "Smart Music Shuffler", MB_OK | MB_ICONERROR);
+    if (loadMusicFolder(playlist) == 0 && loadPlaylist("playlist.txt", playlist) == 0) {
+        MessageBoxA(NULL, "Add some .mp3 files to the Music folder", "Smart Music Shuffler", MB_OK | MB_ICONERROR);
         return 1;
     }
     total = playlist.getSongCount();
     songList = new Song[total];
     playlist.toArray(songList, total);
+    startCovers();
 
     BOOL animations = TRUE;
     SystemParametersInfoA(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
@@ -2160,7 +2465,9 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show) {
         }
         if (!windowAlive) break;
         if (IsIconic(hwnd)) {
-            WaitMessage();
+            // keep the queue moving while minimised so the next song still starts
+            if (playing) { tick(); Sleep(100); }
+            else WaitMessage();
             continue;
         }
         bool busy = tick();
@@ -2178,6 +2485,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int show) {
         }
     }
 
+    audioClose();
+    MFShutdown();
     destroyTarget();
     IDWriteTextFormat* fonts[11] = {tHuge, tHero, tLogin, tSub, tBody, tBold, tSmall, tInitS, tInitL, tInitXL, tCover};
     for (int i = 0; i < 11; i++) if (fonts[i]) fonts[i]->Release();
