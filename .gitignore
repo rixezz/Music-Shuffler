@@ -1,4 +1,5 @@
 private/
+Report/
 *.exe
 *.obj
 *.o
